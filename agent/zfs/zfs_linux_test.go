@@ -3,6 +3,7 @@
 package zfs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -106,6 +107,8 @@ func TestCollectorsSkipCommandsWhenDevZfsMissing(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoZfs)
 	_, err = Datasets()
 	assert.ErrorIs(t, err, ErrNoZfs)
+	_, err = RootDatasets()
+	assert.ErrorIs(t, err, ErrNoZfs)
 }
 
 func TestDatasetsDelegatesWhenDevZfsPresent(t *testing.T) {
@@ -137,17 +140,76 @@ func TestPoolStatsDelegatesToZpoolWhenDevZfsPresent(t *testing.T) {
 	t.Cleanup(func() { devZfsPath = oldDevZfsPath })
 
 	oldCommandOutput := commandOutput
-	called := false
+	var calls []string
 	commandOutput = func(name string, args ...string) ([]byte, error) {
-		called = true
-		assert.Equal(t, "zpool", name)
-		assert.Equal(t, []string{"list", "-Hp", "-o", "name,size,alloc,free,health"}, args)
+		calls = append(calls, name)
+		switch name {
+		case "zpool":
+			assert.Equal(t, []string{"list", "-Hp", "-o", "name,size,alloc,free,health"}, args)
+			return []byte("tank\t100\t50\t50\tONLINE\n"), nil
+		case "zfs":
+			assert.Equal(t, []string{"list", "-Hp", "-d", "0", "-o", "name,used,avail,mountpoint"}, args)
+			return []byte("tank\t30\t50\t/tank\n"), nil
+		}
+		t.Fatalf("unexpected %s call with %v", name, args)
+		return nil, nil
+	}
+	t.Cleanup(func() { commandOutput = oldCommandOutput })
+
+	pools, err := PoolStats()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"zpool", "zfs"}, calls)
+	// Usable capacity from the root dataset replaces the raw zpool values.
+	assert.Equal(t, []PoolStat{{Name: "tank", Size: 80, Alloc: 30, Free: 50, Health: "ONLINE"}}, pools)
+}
+
+func TestPoolStatsFallsBackToRawWhenZfsListFails(t *testing.T) {
+	oldDevZfsPath := devZfsPath
+	devZfsPath = filepath.Join(t.TempDir(), "zfs")
+	require.NoError(t, os.WriteFile(devZfsPath, nil, 0o644))
+	t.Cleanup(func() { devZfsPath = oldDevZfsPath })
+
+	oldCommandOutput := commandOutput
+	zfsCalls := 0
+	commandOutput = func(name string, args ...string) ([]byte, error) {
+		if name == "zfs" {
+			zfsCalls++
+			return nil, errors.New("boom")
+		}
+		return []byte("tank\t100\t50\t50\tONLINE\n"), nil
+	}
+	t.Cleanup(func() { commandOutput = oldCommandOutput })
+
+	pools, err := PoolStats()
+	// A failed `zfs list` must not fail the inventory, or health monitoring
+	// would be lost entirely.
+	require.NoError(t, err)
+	assert.Equal(t, []PoolStat{{Name: "tank", Raw: true, Size: 100, Alloc: 50, Free: 50, Health: "ONLINE"}}, pools)
+	assert.Equal(t, 2, zfsCalls, "the failure should be retried once")
+}
+
+func TestPoolStatsRetriesTransientZfsListFailure(t *testing.T) {
+	oldDevZfsPath := devZfsPath
+	devZfsPath = filepath.Join(t.TempDir(), "zfs")
+	require.NoError(t, os.WriteFile(devZfsPath, nil, 0o644))
+	t.Cleanup(func() { devZfsPath = oldDevZfsPath })
+
+	oldCommandOutput := commandOutput
+	zfsCalls := 0
+	commandOutput = func(name string, args ...string) ([]byte, error) {
+		if name == "zfs" {
+			zfsCalls++
+			if zfsCalls == 1 {
+				return nil, errors.New("timed out")
+			}
+			return []byte("tank\t30\t50\t/tank\n"), nil
+		}
 		return []byte("tank\t100\t50\t50\tONLINE\n"), nil
 	}
 	t.Cleanup(func() { commandOutput = oldCommandOutput })
 
 	pools, err := PoolStats()
 	require.NoError(t, err)
-	assert.True(t, called)
-	assert.Equal(t, []PoolStat{{Name: "tank", Size: 100, Alloc: 50, Free: 50, Health: "ONLINE"}}, pools)
+	assert.Equal(t, 2, zfsCalls)
+	assert.Equal(t, []PoolStat{{Name: "tank", Size: 80, Alloc: 30, Free: 50, Health: "ONLINE"}}, pools)
 }

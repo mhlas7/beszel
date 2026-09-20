@@ -16,7 +16,9 @@ func TestCollectorsUseUtilitiesOnNonLinux(t *testing.T) {
 		case "zpool":
 			return []byte("tank\t100\t50\t50\tONLINE\n"), nil
 		case "zfs":
-			return []byte("tank\t50\t50\t/tank\n"), nil
+			// Deliberately different from the zpool values so the usable
+			// capacity override cannot pass unnoticed.
+			return []byte("tank\t30\t50\t/tank\n"), nil
 		default:
 			t.Fatalf("unexpected command %s", name)
 			return nil, nil
@@ -26,8 +28,11 @@ func TestCollectorsUseUtilitiesOnNonLinux(t *testing.T) {
 
 	pools, err := PoolStats()
 	require.NoError(t, err)
-	assert.Equal(t, []PoolStat{{Name: "tank", Size: 100, Alloc: 50, Free: 50, Health: "ONLINE"}}, pools)
+	assert.Equal(t, []PoolStat{{Name: "tank", Size: 80, Alloc: 30, Free: 50, Health: "ONLINE"}}, pools)
 	datasets, err := Datasets()
 	require.NoError(t, err)
-	assert.Equal(t, []Dataset{{Name: "tank", Used: 50, Avail: 50, Mountpoint: "/tank"}}, datasets)
+	assert.Equal(t, []Dataset{{Name: "tank", Used: 30, Avail: 50, Mountpoint: "/tank"}}, datasets)
+	roots, err := RootDatasets()
+	require.NoError(t, err)
+	assert.Equal(t, []Dataset{{Name: "tank", Used: 30, Avail: 50, Mountpoint: "/tank"}}, roots)
 }

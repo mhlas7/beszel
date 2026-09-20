@@ -67,6 +67,93 @@ func TestParseZfsListOutput(t *testing.T) {
 	assert.Equal(t, uint64(11999000000000), datasets[0].Avail)
 }
 
+// loadCapacityFixtures returns the raw `zpool list` pools and the depth-0
+// root datasets. The fixtures deliberately disagree: tank is a 24 TB RAIDZ1
+// whose usable capacity is ~18 TB, so a test cannot pass by accident if the
+// usable values are never applied.
+func loadCapacityFixtures(t *testing.T) ([]PoolStat, []Dataset) {
+	t.Helper()
+	poolData, err := os.ReadFile(fixturePath("zpool_list.txt"))
+	require.NoError(t, err)
+	pools, err := parseZpoolListOutput(poolData)
+	require.NoError(t, err)
+
+	rootData, err := os.ReadFile(fixturePath("zfs_list_depth0.txt"))
+	require.NoError(t, err)
+	roots, err := parseZfsListOutput(rootData)
+	require.NoError(t, err)
+	return pools, roots
+}
+
+func TestApplyUsableCapacity(t *testing.T) {
+	pools, roots := loadCapacityFixtures(t)
+	require.Len(t, pools, 2)
+	// Guard the fixtures themselves: raw and usable must differ.
+	require.NotEqual(t, pools[0].Size, roots[0].Used+roots[0].Avail)
+
+	applyUsableCapacity(pools, roots)
+
+	// tank: 24 TB of raw RAIDZ1 vdevs, ~18 TB usable.
+	assert.Equal(t, uint64(17999000000000), pools[0].Size)
+	assert.Equal(t, uint64(12000000000000), pools[0].Alloc)
+	assert.Equal(t, uint64(5999000000000), pools[0].Free)
+	assert.False(t, pools[0].Raw)
+
+	// rpool's root dataset has mountpoint "-" and must still be matched, by
+	// name rather than mountpoint.
+	assert.Equal(t, uint64(1150000000000), pools[1].Size)
+	assert.Equal(t, uint64(900000000000), pools[1].Alloc)
+	assert.Equal(t, uint64(250000000000), pools[1].Free)
+	assert.False(t, pools[1].Raw)
+	// Health is still the zpool list value.
+	assert.Equal(t, "DEGRADED", pools[1].Health)
+}
+
+func TestApplyUsableCapacityFallsBackToRaw(t *testing.T) {
+	pools, _ := loadCapacityFixtures(t)
+
+	applyUsableCapacity(pools, nil)
+
+	// zpool list values are kept verbatim and flagged as physical.
+	assert.Equal(t, uint64(23999000000000), pools[0].Size)
+	assert.Equal(t, uint64(12000000000000), pools[0].Alloc)
+	assert.Equal(t, uint64(11999000000000), pools[0].Free)
+	assert.True(t, pools[0].Raw)
+	assert.True(t, pools[1].Raw)
+}
+
+func TestApplyUsableCapacityIsPerPool(t *testing.T) {
+	pools, roots := loadCapacityFixtures(t)
+
+	// Drop rpool's root dataset; tank must still get usable values.
+	applyUsableCapacity(pools, roots[:1])
+
+	assert.Equal(t, uint64(17999000000000), pools[0].Size)
+	assert.False(t, pools[0].Raw)
+	assert.Equal(t, uint64(1200000000000), pools[1].Size)
+	assert.True(t, pools[1].Raw)
+}
+
+func TestApplyUsableCapacityIgnoresChildDatasets(t *testing.T) {
+	pools := []PoolStat{{Name: "tank", Size: 100, Alloc: 60, Free: 40}}
+
+	applyUsableCapacity(pools, []Dataset{
+		{Name: "tank/apps", Used: 1, Avail: 2, Mountpoint: "/tank/apps"},
+	})
+
+	assert.Equal(t, uint64(100), pools[0].Size)
+	assert.True(t, pools[0].Raw)
+}
+
+func TestApplyUsableCapacityIgnoresZeroCapacityRoot(t *testing.T) {
+	pools := []PoolStat{{Name: "tank", Size: 100, Alloc: 60, Free: 40}}
+
+	applyUsableCapacity(pools, []Dataset{{Name: "tank", Used: 0, Avail: 0, Mountpoint: "/tank"}})
+
+	assert.Equal(t, uint64(100), pools[0].Size)
+	assert.True(t, pools[0].Raw)
+}
+
 func TestParseZpoolStatusOutput(t *testing.T) {
 	data, err := os.ReadFile(fixturePath("zpool_status.txt"))
 	require.NoError(t, err)
