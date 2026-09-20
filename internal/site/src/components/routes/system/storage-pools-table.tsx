@@ -42,7 +42,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { RawCapacityLabel } from "./raw-capacity-label"
 
-const ZFS_POOL_FIELDS = "id,system,name,display_name,health,size,alloc,free,raw,scrub,details_updated,updated"
+const ZFS_POOL_FIELDS = "id,system,name,display_name,health,size,alloc,free,raw,topology,scrub,details_updated,updated"
 
 /** Maps a zpool health string to a Badge variant. */
 function healthVariant(health: string): "success" | "warning" | "danger" | "outline" {
@@ -98,14 +98,20 @@ const columns: ColumnDef<ZfsPoolRecord>[] = [
 	},
 	{
 		id: "type",
-		accessorFn: poolType,
+		// Sort by backend first, then topology, so pools of the same kind group together.
+		accessorFn: (pool) => `${poolType(pool)} ${pool.topology ?? ""}`,
 		header: ({ column }) => <HeaderButton column={column} name={t`Type`} Icon={FolderTreeIcon} />,
-		cell: ({ getValue }) => {
-			const type = getValue() as string
+		cell: ({ row }) => {
+			const type = poolType(row.original)
+			const { topology } = row.original
 			return (
-				<Badge variant="outline" className={cn("border-transparent", type === "ZFS" ? "bg-blue-200 text-blue-800" : "bg-yellow-200 text-yellow-800")}>
-					{type}
-				</Badge>
+				<span className="flex items-center gap-1.5">
+					<Badge variant="outline" className={cn("border-transparent", type === "ZFS" ? "bg-blue-200 text-blue-800" : "bg-yellow-200 text-yellow-800")}>
+						{type}
+					</Badge>
+					{/* Absent for older agents and for pools whose status could not be read. */}
+					{topology && <span className="text-muted-foreground text-xs">{topology}</span>}
+				</span>
 			)
 		},
 	},

@@ -441,6 +441,57 @@ func TestBtrfsRawCapacityPropagates(t *testing.T) {
 	assert.True(t, detail.Pools[0].Raw)
 }
 
+func TestTopologyPropagatesToDetail(t *testing.T) {
+	zm := &StoragePoolManager{detailInterval: time.Hour, backends: []*poolBackend{
+		{name: "zfs",
+			poolStatsFn: func() ([]zfs.PoolStat, error) {
+				return []zfs.PoolStat{{Name: "tank", Size: 200, Alloc: 100, Health: "ONLINE"}}, nil
+			},
+			poolStatusesFn: func() ([]zfs.PoolStatus, error) {
+				return []zfs.PoolStatus{{Name: "tank", State: "ONLINE", Topology: "raidz1"}}, nil
+			},
+			datasetsFn: func() ([]zfs.Dataset, error) { return nil, nil }},
+		{name: "btrfs",
+			poolStatsFn: func() ([]zfs.PoolStat, error) {
+				return []zfs.PoolStat{btrfsPoolStats(btrfs.Filesystem{UUID: "u1", Name: "backup", Profile: "raid1", Size: 200, Alloc: 100})}, nil
+			},
+			poolStatusesFn: func() ([]zfs.PoolStatus, error) {
+				return []zfs.PoolStatus{btrfsPoolStatuses(btrfs.Filesystem{UUID: "u1", Name: "backup", Profile: "raid1"})}, nil
+			}},
+	}}
+
+	detail := zm.GetDetail(true)
+	require.True(t, detail.Complete)
+	require.Len(t, detail.Pools, 2)
+	byName := make(map[string]string, len(detail.Pools))
+	for _, pool := range detail.Pools {
+		byName[pool.Name] = pool.Topology
+	}
+	assert.Equal(t, "raidz1", byName["tank"])
+	assert.Equal(t, "raid1", byName["b:u1"])
+}
+
+func TestTopologyRetainedWhenStatusFails(t *testing.T) {
+	statusOK := true
+	backend := &poolBackend{name: "zfs",
+		poolStatsFn: func() ([]zfs.PoolStat, error) {
+			return []zfs.PoolStat{{Name: "tank", Size: 200, Alloc: 100, Health: "ONLINE"}}, nil
+		},
+		poolStatusesFn: func() ([]zfs.PoolStatus, error) {
+			if !statusOK {
+				return nil, errors.New("zpool status failed")
+			}
+			return []zfs.PoolStatus{{Name: "tank", State: "ONLINE", Topology: "raidz1"}}, nil
+		},
+		datasetsFn: func() ([]zfs.Dataset, error) { return nil, nil }}
+	zm := &StoragePoolManager{detailInterval: time.Hour, backends: []*poolBackend{backend}}
+
+	require.Equal(t, "raidz1", zm.GetDetail(true).Pools[0].Topology)
+
+	statusOK = false
+	assert.Equal(t, "raidz1", zm.GetDetail(true).Pools[0].Topology)
+}
+
 func TestMarkDuplicatePoolCharts(t *testing.T) {
 	for _, tc := range []struct {
 		name, poolID, device string

@@ -1,0 +1,64 @@
+  pool: vault
+ state: ONLINE
+  scan: scrub repaired 0B in 01:02:03 with 0 errors on Sun Jun  1 02:00:12 2025
+config:
+
+	NAME                        STATE     READ WRITE CKSUM
+	vault                       ONLINE       0     0     0
+	  raidz1-0                  ONLINE       0     0     0
+	    sda                     ONLINE       0     0     0
+	    sdb                     ONLINE       0     0     0
+	    sdc                     ONLINE       0     0     0
+	logs	
+	  mirror-1                  ONLINE       0     0     0
+	    nvme0n1                 ONLINE       0     0     0
+	    nvme1n1                 ONLINE       0     0     0
+	cache
+	  nvme2n1                   ONLINE       0     0     0
+	spares
+	  sdd                       AVAIL
+
+errors: No known data errors
+
+  pool: flat
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	flat        ONLINE       0     0     0
+	  sde       ONLINE       0     0     0
+	  sdf       ONLINE       0     0     0
+
+errors: No known data errors
+
+  pool: hybrid
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME                        STATE     READ WRITE CKSUM
+	hybrid                      ONLINE       0     0     0
+	  mirror-0                  ONLINE       0     0     0
+	    sdg                     ONLINE       0     0     0
+	    sdh                     ONLINE       0     0     0
+	  raidz2-1                  ONLINE       0     0     0
+	    sdi                     ONLINE       0     0     0
+	    sdj                     ONLINE       0     0     0
+	    sdk                     ONLINE       0     0     0
+	    sdl                     ONLINE       0     0     0
+
+errors: No known data errors
+
+  pool: dpool
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME                        STATE     READ WRITE CKSUM
+	dpool                       ONLINE       0     0     0
+	  draid2:4d:12c:1s-0        ONLINE       0     0     0
+	    sdm                     ONLINE       0     0     0
+	    sdn                     ONLINE       0     0     0
+
+errors: No known data errors

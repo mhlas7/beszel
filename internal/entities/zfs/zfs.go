@@ -36,9 +36,10 @@ type PoolDetail struct {
 	Raw         bool       `json:"raw,omitempty"`
 	Name        string     `json:"name"`
 	Health      string     `json:"health,omitempty"`
-	Size        uint64     `json:"size,omitempty"`  // bytes
-	Alloc       uint64     `json:"alloc,omitempty"` // bytes
-	Free        uint64     `json:"free,omitempty"`  // bytes
+	Topology    string     `json:"topology,omitempty"` // raidz1, mirror, raid1, ...
+	Size        uint64     `json:"size,omitempty"`     // bytes
+	Alloc       uint64     `json:"alloc,omitempty"`    // bytes
+	Free        uint64     `json:"free,omitempty"`     // bytes
 	Scrub       *Scrub     `json:"scrub,omitempty"`
 	Vdevs       []*Vdev    `json:"vdevs,omitempty"`
 	Datasets    []*Dataset `json:"datasets,omitempty"`

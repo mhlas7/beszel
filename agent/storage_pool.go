@@ -344,6 +344,7 @@ func (b *poolBackend) collectDetail(previous *zfsentity.ZfsData) (*zfsentity.Zfs
 			Free:        p.Free,
 		}
 		if st, ok := statusByPool[p.Name]; statusErr == nil && ok {
+			detail.Topology = st.Topology
 			if st.Scrub.State != "" && st.Scrub.State != "NONE" {
 				detail.Scrub = &zfsentity.Scrub{
 					State:    st.Scrub.State,
@@ -362,6 +363,7 @@ func (b *poolBackend) collectDetail(previous *zfsentity.ZfsData) (*zfsentity.Zfs
 			}
 		} else {
 			if cached := previousByPool[p.Name]; cached != nil {
+				detail.Topology = cached.Topology
 				detail.Scrub = cached.Scrub
 				detail.Vdevs = cached.Vdevs
 			}
@@ -421,7 +423,7 @@ func btrfsKernelStats(fs btrfs.Filesystem) zfs.PoolKernelStat {
 }
 
 func btrfsPoolStatuses(fs btrfs.Filesystem) zfs.PoolStatus {
-	status := zfs.PoolStatus{Name: "b:" + fs.UUID, State: fs.Health, Scrub: zfs.ScrubStatus{State: "NONE"}}
+	status := zfs.PoolStatus{Name: "b:" + fs.UUID, State: fs.Health, Topology: fs.Profile, Scrub: zfs.ScrubStatus{State: "NONE"}}
 	for _, dev := range fs.Devices {
 		status.Vdevs = append(status.Vdevs, zfs.VdevStatus{
 			Name: dev.Name, State: dev.State,

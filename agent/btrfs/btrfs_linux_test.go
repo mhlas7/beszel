@@ -41,6 +41,7 @@ func TestFilesystems(t *testing.T) {
 	write("recorded-size/2", "128000\n")
 	write("label", "tank\n")
 	write("allocation/data/disk_used", "4096\n")
+	write("allocation/data/raid1/total_bytes", "384000\n")
 	write("allocation/metadata/disk_used", "2048\n")
 	write("allocation/system/disk_used", "1024\n")
 	write("devices/sda/size", "1000\n")
@@ -55,7 +56,7 @@ func TestFilesystems(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, filesystems, 1)
 	assert.Equal(t, Filesystem{
-		UUID: "1b2c3d4e-0000-0000-0000-000000000000", Raw: true, Name: "tank", Size: 384000, Alloc: 7168, Health: "DEGRADED", NRead: 153600, NWrite: 256000,
+		UUID: "1b2c3d4e-0000-0000-0000-000000000000", Raw: true, Name: "tank", Profile: "raid1", Size: 384000, Alloc: 7168, Health: "DEGRADED", NRead: 153600, NWrite: 256000,
 		Devices: []Device{
 			{Name: "devid 1", State: "ONLINE", ReadErrs: 2, WriteErrs: 1, CorruptionErrs: 3},
 			{Name: "devid 2", State: "MISSING"},
@@ -250,6 +251,42 @@ func TestDockerFilesystemWithoutDeviceNodes(t *testing.T) {
 	assert.Equal(t, "dm-0", fs[0].IODevice)
 	assert.False(t, fs[0].Raw)
 	assert.Equal(t, uint64(1000), fs[0].Size)
+}
+
+func TestDataProfile(t *testing.T) {
+	newFs := func(t *testing.T, entries ...string) string {
+		t.Helper()
+		dir := t.TempDir()
+		// Attribute files live alongside the profile directories and must not
+		// be mistaken for one.
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "allocation", "data"), 0o755))
+		for _, name := range []string{"disk_used", "total_bytes", "flags", "size_classes"} {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "allocation", "data", name), []byte("0\n"), 0o644))
+		}
+		for _, entry := range entries {
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "allocation", "data", entry), 0o755))
+		}
+		return dir
+	}
+
+	assert.Equal(t, "single", dataProfile(newFs(t, "single")))
+	assert.Equal(t, "raid1", dataProfile(newFs(t, "raid1")))
+	assert.Equal(t, "raid10", dataProfile(newFs(t, "raid10")))
+	// A balance in progress leaves chunks of both profiles allocated.
+	assert.Equal(t, "single+raid1", dataProfile(newFs(t, "raid1", "single")))
+	// Unknown directories are ignored rather than reported as a profile.
+	assert.Equal(t, "", dataProfile(newFs(t, "not_a_profile")))
+	// A filesystem with no allocation directory at all.
+	assert.Equal(t, "", dataProfile(t.TempDir()))
+}
+
+func TestDataProfileIgnoresMetadataProfile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "allocation", "data", "single"), 0o755))
+	// Metadata commonly uses dup on a single device; only data is reported.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "allocation", "metadata", "dup"), 0o755))
+
+	assert.Equal(t, "single", dataProfile(dir))
 }
 
 func TestLivePoolMountIdentity(t *testing.T) {

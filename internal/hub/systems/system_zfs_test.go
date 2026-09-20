@@ -203,6 +203,36 @@ func TestZfsRawCapacityPersistence(t *testing.T) {
 	assert.EqualValues(t, 1024*1024*1024, record.GetInt("size"))
 }
 
+func TestZfsTopologyPersistence(t *testing.T) {
+	sys, app := newTestSystemWithHub(t)
+	id := MakeStableHashId(sys.Id, "tank")
+
+	require.NoError(t, sys.saveZfsPools(&zfs.ZfsData{Complete: true, Pools: []*zfs.PoolDetail{
+		{Name: "tank", Health: "ONLINE", Topology: "raidz1"},
+	}}))
+	record, err := app.FindRecordById("zfs_pools", id)
+	require.NoError(t, err)
+	assert.Equal(t, "raidz1", record.GetString("topology"))
+
+	// `zpool status` can fail while the inventory still succeeds. Topology
+	// only changes when the pool is restructured, so the known value is kept
+	// rather than blanked.
+	require.NoError(t, sys.saveZfsPools(&zfs.ZfsData{Complete: true, Pools: []*zfs.PoolDetail{
+		{Name: "tank", Health: "ONLINE"},
+	}}))
+	record, err = app.FindRecordById("zfs_pools", id)
+	require.NoError(t, err)
+	assert.Equal(t, "raidz1", record.GetString("topology"))
+
+	// A restructured pool reports its new topology.
+	require.NoError(t, sys.saveZfsPools(&zfs.ZfsData{Complete: true, Pools: []*zfs.PoolDetail{
+		{Name: "tank", Health: "ONLINE", Topology: "raidz2"},
+	}}))
+	record, err = app.FindRecordById("zfs_pools", id)
+	require.NoError(t, err)
+	assert.Equal(t, "raidz2", record.GetString("topology"))
+}
+
 func TestBtrfsDisplayNameKeepsRecordIdentity(t *testing.T) {
 	sys, app := newTestSystemWithHub(t)
 	key := "b:11111111-1111-4111-8111-111111111111"

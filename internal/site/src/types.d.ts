@@ -225,6 +225,8 @@ export interface ZfsDataset {
 export interface ZfsPoolRecord extends RecordModel {
 	display_name?: string
 	raw?: boolean
+	/** data redundancy level: raidz1, mirror, raid1, ... */
+	topology?: string
 	system: string
 	name: string
 	health: string

@@ -78,6 +78,7 @@ func TestParseZpoolStatusOutput(t *testing.T) {
 	tank := pools[0]
 	assert.Equal(t, "tank", tank.Name)
 	assert.Equal(t, "ONLINE", tank.State)
+	assert.Equal(t, "mirror", tank.Topology)
 	assert.Equal(t, "FINISHED", tank.Scrub.State)
 	assert.Equal(t, "", tank.Scrub.Progress)
 	assert.Equal(t, uint64(0), tank.Scrub.Errors)
@@ -90,6 +91,7 @@ func TestParseZpoolStatusOutput(t *testing.T) {
 	rpool := pools[1]
 	assert.Equal(t, "rpool", rpool.Name)
 	assert.Equal(t, "DEGRADED", rpool.State)
+	assert.Equal(t, "mirror", rpool.Topology)
 	assert.Equal(t, "SCANNING", rpool.Scrub.State)
 	assert.Equal(t, "10.00%", rpool.Scrub.Progress)
 	require.Len(t, rpool.Vdevs, 3)
@@ -97,6 +99,59 @@ func TestParseZpoolStatusOutput(t *testing.T) {
 	assert.Equal(t, uint64(1), rpool.Vdevs[2].ReadErrs)
 	assert.Equal(t, uint64(2), rpool.Vdevs[2].WriteErrs)
 	assert.Equal(t, uint64(3), rpool.Vdevs[2].ChecksumErrs)
+}
+
+func TestParseZpoolStatusTopology(t *testing.T) {
+	data, err := os.ReadFile(fixturePath("zpool_status_topology.txt"))
+	require.NoError(t, err)
+
+	pools, err := parseZpoolStatusOutput(data)
+	require.NoError(t, err)
+	require.Len(t, pools, 4)
+
+	byName := make(map[string]PoolStatus, len(pools))
+	for _, pool := range pools {
+		byName[pool.Name] = pool
+	}
+
+	// The mirrored SLOG and the cache/spare devices must not influence the
+	// pool's data redundancy level.
+	assert.Equal(t, "raidz1", byName["vault"].Topology)
+	// Bare top-level devices are a stripe.
+	assert.Equal(t, "stripe", byName["flat"].Topology)
+	// Mixed vdev types are joined, sorted for a stable value.
+	assert.Equal(t, "mirror+raidz2", byName["hybrid"].Topology)
+	// dRAID keeps only the parity level, not the geometry.
+	assert.Equal(t, "draid2", byName["dpool"].Topology)
+
+	// Auxiliary devices are still listed in the vdev table as before.
+	assert.Contains(t, vdevNames(byName["vault"].Vdevs), "mirror-1")
+}
+
+func vdevNames(vdevs []VdevStatus) []string {
+	names := make([]string, 0, len(vdevs))
+	for _, vdev := range vdevs {
+		names = append(names, vdev.Name)
+	}
+	return names
+}
+
+func TestVdevType(t *testing.T) {
+	cases := map[string]string{
+		"mirror-0":           "mirror",
+		"raidz1-0":           "raidz1",
+		"raidz2-1":           "raidz2",
+		"raidz3-0":           "raidz3",
+		"raidz-0":            "raidz1", // legacy single-parity name
+		"draid2:4d:12c:1s-0": "draid2",
+		"sda":                "stripe",
+		"nvme0n1":            "stripe",
+		// A device path containing a hyphen is not a vdev kind.
+		"ata-WDC_WD60EFRX-68L0BN1": "stripe",
+	}
+	for name, want := range cases {
+		assert.Equal(t, want, vdevType(name), name)
+	}
 }
 
 func TestParseScanLine(t *testing.T) {

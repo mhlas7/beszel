@@ -148,6 +148,12 @@ func (sys *System) upsertZfsPoolRecord(app core.App, collection *core.Collection
 	record.Set("alloc", pool.Alloc)
 	record.Set("free", pool.Free)
 	record.Set("raw", pool.Raw)
+	// Topology comes from the pool status, which may be unavailable while the
+	// inventory still succeeds. Keep the last known value rather than blanking
+	// it, since topology only changes when the pool is restructured.
+	if pool.Topology != "" {
+		record.Set("topology", pool.Topology)
+	}
 	record.Set("scrub", pool.Scrub)
 	record.Set("vdevs", pool.Vdevs)
 	record.Set("datasets", pool.Datasets)

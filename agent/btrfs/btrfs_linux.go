@@ -55,6 +55,7 @@ func readFilesystem(dir string, mounts map[string]string) (Filesystem, error) {
 			fs.Alloc += value
 		}
 	}
+	fs.Profile = dataProfile(dir)
 	// devices/<name> links to the block device's sysfs directory.
 	devices, err := os.ReadDir(filepath.Join(dir, "devices"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -200,6 +201,26 @@ func ioctlDeviceSize(mountpoint string, devid uint64) (uint64, error) {
 		return 0, errno
 	}
 	return args.TotalBytes, nil
+}
+
+// raidProfiles are the block group profiles the kernel can expose, each as a
+// directory under allocation/<kind>/. The set is a whitelist because that
+// directory also holds regular attribute files and may gain more over time.
+var raidProfiles = []string{"single", "dup", "raid0", "raid1", "raid1c3", "raid1c4", "raid5", "raid6", "raid10"}
+
+// dataProfile returns the filesystem's data redundancy profile, e.g. "raid1".
+// Only the data profile is reported: metadata commonly uses a different one
+// (dup on a single device), and data is what the pool's capacity and
+// redundancy follow. A balance in progress leaves chunks of more than one
+// profile allocated, so those are joined with "+".
+func dataProfile(dir string) string {
+	var profiles []string
+	for _, profile := range raidProfiles {
+		if stat, err := os.Stat(filepath.Join(dir, "allocation", "data", profile)); err == nil && stat.IsDir() {
+			profiles = append(profiles, profile)
+		}
+	}
+	return strings.Join(profiles, "+")
 }
 
 // The filesystem magic is unsigned even when Statfs_t.Type is int32.

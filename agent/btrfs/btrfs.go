@@ -7,6 +7,7 @@ type Filesystem struct {
 	MountID  string // kernel filesystem identity for matching monitored mounts
 	IODevice string // sole member block-device name, empty for multi-device/unknown pools
 	Name     string // label, else first mountpoint, else UUID
+	Profile  string // data redundancy profile: single, raid1, raid10, ...
 	Size     uint64 // effective usable capacity, or raw member capacity when Raw
 	Raw      bool   // capacity and usage are physical bytes, unsuitable for disk alerts
 	Alloc    uint64 // raw bytes allocated to data, metadata and system chunks
